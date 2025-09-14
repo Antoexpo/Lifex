@@ -1,44 +1,52 @@
-import prisma from '../lib/prisma.js';
+import { PrismaClient } from '@prisma/client';
+import argon2 from 'argon2';
+
+const prisma = new PrismaClient();
 
 async function main() {
-  const plans = [
-    {
-      code: 'BASE',
-      name: 'BASE',
-      description: 'Commissioni Digital 10% / Experiences 5%',
-      price: 6000
-    },
-    {
-      code: 'ACCESS',
-      name: 'ACCESS',
-      description: 'Boost x2 commissioni digital',
-      price: 12000
-    },
-    {
-      code: 'PRO',
-      name: 'PRO',
-      description: 'Academy avanzata + vantaggi extra',
-      price: 29900
-    }
-  ];
+  await prisma.commission.deleteMany();
+  await prisma.walletTransaction.deleteMany();
+  await prisma.wallet.deleteMany();
+  await prisma.subscription.deleteMany();
+  await prisma.user.deleteMany();
 
-  for (const plan of plans) {
-    await prisma.membershipPlan.upsert({
-      where: { code: plan.code },
-      update: plan,
-      create: plan
-    });
-  }
+  const adminPass = await argon2.hash('adminpass');
+  const staffPass = await argon2.hash('staffpass');
+  const memberPass = await argon2.hash('memberpass');
+
+  const admin = await prisma.user.create({
+    data: {
+      email: 'admin@example.com',
+      password: adminPass,
+      referralCode: 'ADMIN',
+      path: '/',
+      subscription: { create: { status: 'ACTIVE', expireAt: new Date(Date.now() + 30*86400000) } },
+      wallet: { create: {} }
+    }
+  });
+
+  await prisma.user.create({
+    data: {
+      email: 'staff@example.com',
+      password: staffPass,
+      referralCode: 'STAFF',
+      path: '/',
+      subscription: { create: { status: 'ACTIVE', expireAt: new Date(Date.now() + 30*86400000) } },
+      wallet: { create: {} }
+    }
+  });
+
+  await prisma.user.create({
+    data: {
+      email: 'member@example.com',
+      password: memberPass,
+      referralCode: 'MEMBER',
+      sponsorId: admin.id,
+      path: `/${admin.id}/`,
+      subscription: { create: { status: 'ACTIVE', expireAt: new Date(Date.now() + 30*86400000) } },
+      wallet: { create: {} }
+    }
+  });
 }
 
-main()
-  .then(() => {
-    console.log('Seed completato');
-  })
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main().finally(() => prisma.$disconnect());

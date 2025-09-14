@@ -1,0 +1,6 @@
+{
+  "name": "@lifex/config",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "comp_plan.json"
+}
