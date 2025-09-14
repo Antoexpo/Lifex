@@ -1,0 +1,4 @@
+body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+#app { max-width: 600px; margin: auto; }
+nav a { margin-right: 10px; }
+input, button { padding: 8px; margin: 5px 0; width: 100%; }
