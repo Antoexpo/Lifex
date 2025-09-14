@@ -1,0 +1,27 @@
+{
+  "name": "lifex",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "prisma:generate": "prisma generate",
+    "prisma:deploy": "prisma migrate deploy",
+    "seed": "node prisma/seed.js",
+    "test": "echo \"No tests\""
+  },
+  "dependencies": {
+    "@prisma/client": "^5.10.2",
+    "next": "^14.2.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^15.5.3",
+    "prisma": "^5.10.2"
+  }
+}
