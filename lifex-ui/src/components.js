@@ -84,9 +84,9 @@ export const Card = (title, content) => `<div class="card"><h3>${title}</h3>${co
 export const Badge = (type, text) => `<span class="badge ${type}">${text}</span>`;
 
 export const ACTIVITY_TIERS = [
-  {id:'base', label:'Base', min:0, max:499, depositFee:0.10, transferFee:0.02},
-  {id:'access', label:'Access', min:500, max:999, depositFee:0.08, transferFee:0.01},
-  {id:'royal', label:'Royal', min:1000, max:Infinity, depositFee:0.01, transferFee:0}
+  {id:'base', label:'Base', min:0, max:499, depositFee:0.10, transferFee:0.02, cashoutFee:0.05},
+  {id:'access', label:'Access', min:500, max:999, depositFee:0.08, transferFee:0.01, cashoutFee:0.03},
+  {id:'royal', label:'Royal', min:1000, max:Infinity, depositFee:0.01, transferFee:0.01, cashoutFee:0}
 ];
 
 const activityTierMap = ACTIVITY_TIERS.reduce((acc,tier)=>{
@@ -96,7 +96,7 @@ const activityTierMap = ACTIVITY_TIERS.reduce((acc,tier)=>{
 
 export function ActivityBadge(tier){
   const meta = (tier && typeof tier === 'object') ? tier : activityTierMap[tier] || activityTierMap.base;
-  const tooltip = `Fee ricarica ${formatPercent(meta.depositFee)} · transfer ${formatPercent(meta.transferFee)}`;
+  const tooltip = `Fee ricarica ${formatPercent(meta.depositFee)} · transfer ${formatPercent(meta.transferFee)} · cash-out ${formatPercent(meta.cashoutFee ?? 0)}`;
   const safeTooltip = tooltip.replace(/"/g,'&quot;');
   return `<span class="badge tier-${meta.id}" title="${safeTooltip}">${meta.label}</span>`;
 }
@@ -223,7 +223,7 @@ export function WalletCard({
   const progressText = hasNextTier
     ? `${currentLLX} / ${targetLLX} LLX → manca ${missingLLX} LLX a ${nextTier.label}`
     : `${currentLLX} LLX · livello massimo (${resolvedTier.label})`;
-  const promoText = promoActive ? '<span class="badge gold promo-badge">Saldo positivo → cash-out gratis</span>' : '';
+  const promoText = promoActive ? `<span class="badge gold promo-badge">Stato ${escapeHtml(resolvedTier.label)} → cash-out gratis</span>` : '';
   return `
     <div class="card wallet-card">
       <div class="wallet-card-header">
@@ -280,7 +280,7 @@ const defaultTypeLabels = {
 const defaultFeeInfo = {
   deposit: 'Ricarica LLX: fee variabile in base allo Stato Attività.',
   transfer: 'Trasferimento interno: fee variabile in base allo Stato Attività.',
-  cashout: 'Cash-out: fee per scaglioni importo (5% / 2% / 0%).',
+  cashout: 'Cash-out: fee in base allo Stato Attività (5% / 3% / 0%).',
   bonus: 'Bonus: nessuna fee applicata.',
   hold: 'Blocco cauzionale: importo riservato.'
 };
