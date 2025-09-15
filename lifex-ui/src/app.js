@@ -8,6 +8,30 @@ const modalEl = document.getElementById('modal');
 let toastContainer = null;
 let miniCartInitialized = false;
 
+const LLX = {
+  FEES: {
+    DEPOSIT_PCT: {
+      BASE: 0.10,
+      ACCESS: 0.08,
+      ROYAL: 0.01
+    },
+    TRANSFER_PCT: {
+      BASE: 0.02,
+      ACCESS: 0.01,
+      ROYAL: 0
+    },
+    CASHOUT_BRACKETS: [
+      {id: 'low', min: 0, max: 499.99, pct: 0.05, label: '< 500 LLX'},
+      {id: 'mid', min: 500, max: 999.99, pct: 0.02, label: '500–999 LLX'},
+      {id: 'high', min: 1000, max: Infinity, pct: 0, label: '≥ 1000 LLX'}
+    ],
+    POSITIVE_BALANCE_REWARD: {
+      enabled: true,
+      streakDays: 30
+    }
+  }
+};
+
 function escapeHtml(str=''){
   return str.replace(/[&<>]/g, ch=>({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[ch]));
 }
@@ -607,10 +631,10 @@ async function renderWallet(){
   const cardContainer = document.getElementById('wallet-card');
   const ledgerContainer = document.getElementById('wallet-ledger');
   const operationLabels = { deposit: 'Ricarica LLX', transfer: 'Trasferimento', cashout: 'Cash-out' };
-  const cashoutBrackets = [
-    {id:'low', min:0, max:499.99, rate:0.05, label:'< 500 LLX'},
-    {id:'mid', min:500, max:999.99, rate:0.02, label:'500–999 LLX'},
-    {id:'high', min:1000, max:Infinity, rate:0, label:'≥ 1000 LLX'}
+  const cashoutBrackets = LLX.FEES.CASHOUT_BRACKETS ?? [
+    {id:'low', min:0, max:499.99, pct:0.05, label:'< 500 LLX'},
+    {id:'mid', min:500, max:999.99, pct:0.02, label:'500–999 LLX'},
+    {id:'high', min:1000, max:Infinity, pct:0, label:'≥ 1000 LLX'}
   ];
 
   function roundLLX(value){
@@ -621,48 +645,59 @@ async function renderWallet(){
 
   function getEffectiveAvailable(currentState=state){
     const wallet = currentState.wallet || {};
-    const hasBreakdown = wallet.confirmedCredits != null || wallet.confirmedDebits != null;
-    const confirmedCredits = Number(wallet.confirmedCredits ?? 0) || 0;
-    const confirmedDebits = Number(wallet.confirmedDebits ?? 0) || 0;
-    const baseConfirmed = hasBreakdown
-      ? confirmedCredits - confirmedDebits
+    const confirmedCreditsRaw = Number(wallet.confirmedCredits);
+    const confirmedDebitsRaw = Number(wallet.confirmedDebits);
+    const hasConfirmedBreakdown = Number.isFinite(confirmedCreditsRaw) || Number.isFinite(confirmedDebitsRaw);
+    const confirmedBase = hasConfirmedBreakdown
+      ? (Number.isFinite(confirmedCreditsRaw) ? confirmedCreditsRaw : 0) - (Number.isFinite(confirmedDebitsRaw) ? confirmedDebitsRaw : 0)
       : Number(wallet.confirmed ?? wallet.balance ?? wallet.balanceLLX ?? 0) || 0;
     const holds = Number(wallet.holds ?? 0) || 0;
     const pendingOut = Number(wallet.pendingOut ?? 0) || 0;
     // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
-    return roundLLX(baseConfirmed - holds - pendingOut);
+    return roundLLX(confirmedBase - holds - pendingOut);
   }
 
   function getActivityTierFromEff(currentState=state){
     const eff = getEffectiveAvailable(currentState);
     // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
-    if(eff >= 1000) return ACTIVITY_TIERS.find(t=>t.id==='royal') || ACTIVITY_TIERS[ACTIVITY_TIERS.length-1];
-    if(eff >= 500) return ACTIVITY_TIERS.find(t=>t.id==='access') || ACTIVITY_TIERS[1] || ACTIVITY_TIERS[0];
-    return ACTIVITY_TIERS.find(t=>t.id==='base') || ACTIVITY_TIERS[0];
+    if(eff >= 1000) return 'ROYAL';
+    if(eff >= 500) return 'ACCESS';
+    return 'BASE';
   }
-
-  const POSITIVE_STREAK_THRESHOLD = 30;
 
   function getPositiveStreakDays(){
     return Number(state.wallet?.positiveStreakDays ?? state.wallet?.streakPositiveDays ?? 0) || 0;
   }
 
   function hasPositiveBalanceReward(){
-    return getPositiveStreakDays() >= POSITIVE_STREAK_THRESHOLD;
+    const reward = LLX.FEES.POSITIVE_BALANCE_REWARD;
+    if(!reward?.enabled) return false;
+    const target = Number(reward.streakDays ?? 0) || 0;
+    return getPositiveStreakDays() >= target;
+  }
+
+  function getTierMeta(tier){
+    if(tier && typeof tier === 'object' && tier.id){
+      return tier;
+    }
+    const key = (tier ?? 'base').toString().toLowerCase();
+    return ACTIVITY_TIERS.find(t=>t.id===key) || ACTIVITY_TIERS[0];
   }
 
   function getNextTier(tier){
-    const idx = ACTIVITY_TIERS.findIndex(t=>t.id===tier.id);
+    const current = getTierMeta(tier);
+    const idx = ACTIVITY_TIERS.findIndex(t=>t.id===current.id);
     return idx>=0 && idx<ACTIVITY_TIERS.length-1 ? ACTIVITY_TIERS[idx+1] : null;
   }
 
   function computeProgress(tier, available){
-    const nextTier = getNextTier(tier);
+    const currentTier = getTierMeta(tier);
+    const nextTier = getNextTier(currentTier);
     if(!nextTier){
       return {ratio:1,current:available,target:available,missing:0,nextTier:null};
     }
-    const span = (nextTier.min ?? available) - (tier.min ?? 0);
-    const ratio = span <= 0 ? 1 : Math.min(Math.max((available - (tier.min ?? 0)) / span, 0), 1);
+    const span = (nextTier.min ?? available) - (currentTier.min ?? 0);
+    const ratio = span <= 0 ? 1 : Math.min(Math.max((available - (currentTier.min ?? 0)) / span, 0), 1);
     const missing = Math.max(0, (nextTier.min ?? available) - available);
     return {ratio, current:available, target:nextTier.min, missing, nextTier};
   }
@@ -679,11 +714,21 @@ async function renderWallet(){
 
   function getCashoutBracket(amount){
     const gross = Number(amount) || 0;
-    return cashoutBrackets.find(bracket=>gross >= (bracket.min ?? 0) && gross <= bracket.max) || cashoutBrackets[cashoutBrackets.length-1];
+    const list = Array.isArray(cashoutBrackets) && cashoutBrackets.length
+      ? cashoutBrackets
+      : [{id:'default', min:0, max:Infinity, pct:0, label:'Saldo disponibile'}];
+    const found = list.find(bracket=>gross >= (bracket.min ?? 0) && gross <= (bracket.max ?? Infinity));
+    return found || list[list.length-1];
+  }
+
+  function getCashoutPct(amount){
+    const bracket = getCashoutBracket(amount);
+    return Number.isFinite(bracket?.pct) ? bracket.pct : 0;
   }
 
   function previewDeposit(amount, currentState=state){
-    const tier = getActivityTierFromEff(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    const tierKey = getActivityTierFromEff(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    const tierMeta = getTierMeta(tierKey);
     const effBefore = getEffectiveAvailable(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
     const cleanAmount = roundLLX(amount);
     if(!Number.isFinite(cleanAmount) || cleanAmount <= 0){
@@ -693,14 +738,15 @@ async function renderWallet(){
         type:'deposit',
         label:operationLabels.deposit,
         availableBefore: effBefore,
-        tierId: tier.id,
-        tierLabel: tier.label,
+        tierId: tierMeta.id,
+        tierLabel: tierMeta.label,
         pendingInImpact: 0,
         pendingOutImpact: 0,
         totalDebit: 0
       };
     }
-    const feeRate = tier.depositFee;
+    const configuredDepositRate = (LLX.FEES.DEPOSIT_PCT || {})[tierKey];
+    const feeRate = Number.isFinite(configuredDepositRate) ? configuredDepositRate : (tierMeta?.depositFee ?? 0);
     const feeLLX = roundLLX(cleanAmount * feeRate);
     const totalDebit = roundLLX(cleanAmount + feeLLX);
     const amountSigned = cleanAmount;
@@ -718,9 +764,9 @@ async function renderWallet(){
       netLLX,
       resultingBalance: effAfter,
       availableBefore: effBefore,
-      tierId: tier.id,
-      tierLabel: tier.label,
-      feeTooltip: `Stato ${tier.label}: fee ricarica ${formatPercent(feeRate)}.`,
+      tierId: tierMeta.id,
+      tierLabel: tierMeta.label,
+      feeTooltip: `Stato ${tierMeta.label}: fee ricarica ${formatPercent(feeRate)}.`,
       promoActive: false,
       pendingInImpact: cleanAmount,
       pendingOutImpact: 0,
@@ -729,7 +775,8 @@ async function renderWallet(){
   }
 
   function previewTransfer(amount, currentState=state){
-    const tier = getActivityTierFromEff(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    const tierKey = getActivityTierFromEff(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    const tierMeta = getTierMeta(tierKey);
     const effBefore = getEffectiveAvailable(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
     const cleanAmount = roundLLX(amount);
     if(!Number.isFinite(cleanAmount) || cleanAmount <= 0){
@@ -739,13 +786,14 @@ async function renderWallet(){
         type:'transfer',
         label:operationLabels.transfer,
         availableBefore: effBefore,
-        tierId: tier.id,
-        tierLabel: tier.label,
+        tierId: tierMeta.id,
+        tierLabel: tierMeta.label,
         pendingOutImpact: 0,
         totalDebit: 0
       };
     }
-    const feeRate = tier.transferFee;
+    const configuredTransferRate = (LLX.FEES.TRANSFER_PCT || {})[tierKey];
+    const feeRate = Number.isFinite(configuredTransferRate) ? configuredTransferRate : (tierMeta?.transferFee ?? 0);
     const feeLLX = roundLLX(cleanAmount * feeRate);
     const totalOut = roundLLX(cleanAmount + feeLLX);
     if(totalOut > effBefore + 0.005){
@@ -755,8 +803,8 @@ async function renderWallet(){
         type:'transfer',
         label:operationLabels.transfer,
         availableBefore: effBefore,
-        tierId: tier.id,
-        tierLabel: tier.label,
+        tierId: tierMeta.id,
+        tierLabel: tierMeta.label,
         pendingOutImpact: 0,
         totalDebit: totalOut
       };
@@ -776,9 +824,9 @@ async function renderWallet(){
       netLLX,
       resultingBalance: effAfter,
       availableBefore: effBefore,
-      tierId: tier.id,
-      tierLabel: tier.label,
-      feeTooltip: `Stato ${tier.label}: fee trasferimento ${formatPercent(feeRate)}.`,
+      tierId: tierMeta.id,
+      tierLabel: tierMeta.label,
+      feeTooltip: `Stato ${tierMeta.label}: fee trasferimento ${formatPercent(feeRate)}.`,
       promoActive: false,
       pendingOutImpact: totalOut,
       effAfter
@@ -802,8 +850,9 @@ async function renderWallet(){
         streakOk: promoActive
       };
     }
+    const basePct = getCashoutPct(cleanAmount);
+    const feeRate = promoActive ? 0 : basePct;
     const bracket = getCashoutBracket(cleanAmount);
-    const feeRate = promoActive ? 0 : bracket.rate;
     const feeLLX = roundLLX(cleanAmount * feeRate);
     const totalOut = roundLLX(cleanAmount + feeLLX);
     if(cleanAmount > effBefore + 0.005){
@@ -956,8 +1005,9 @@ async function renderWallet(){
 
   function renderWalletUI(){
     const stats = computeStats();
-    const tier = getActivityTierFromEff(state); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
-    const progress = computeProgress(tier, stats.available);
+    const tierKey = getActivityTierFromEff(state); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    const tierMeta = getTierMeta(tierKey);
+    const progress = computeProgress(tierMeta, stats.available);
     const promoActive = hasPositiveBalanceReward();
     const confirmedBalance = Number(state.wallet.confirmed ?? state.wallet.balanceLLX) || 0;
     cardContainer.innerHTML = WalletCard({
@@ -965,7 +1015,7 @@ async function renderWallet(){
       availableLLX: stats.available,
       pendingPositive: stats.pendingPositive,
       pendingNegative: stats.pendingNegative,
-      tier,
+      tier: tierMeta,
       nextTier: progress.nextTier,
       progress,
       streakDays: getPositiveStreakDays(),
