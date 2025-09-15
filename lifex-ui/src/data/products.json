@@ -1,0 +1,6 @@
+[
+  {"sku":"RS3-CANONE","name":"Audi RS3 — Canone mensile","category":"Servizi/Noleggio","priceEUR":2200,"tags":["RS","mensile"],"status":"attivo"},
+  {"sku":"RSQ3-DEPOSITO","name":"Audi RSQ3 — Deposito cauzionale","category":"Depositi","priceEUR":6000,"tags":["deposito"],"status":"attivo"},
+  {"sku":"POINT-FEE-500","name":"Quota Point — senza auto","category":"Affiliazioni","priceEUR":500,"tags":["point"],"status":"attivo"},
+  {"sku":"POINT-FEE-1500","name":"Quota Point — con auto personale","category":"Affiliazioni","priceEUR":1500,"tags":["point"],"status":"attivo"}
+]
