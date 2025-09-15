@@ -37,13 +37,28 @@ Formato: `LLX` + anno corrente (YYYY) + 6 cifre estratte dal codice fiscale. Se 
 Nella vista **Membri** è presente il pulsante “Copia mappa codici”: apre una modal con la mappa `oldCode -> newCode` generata in runtime. È possibile copiare il JSON negli appunti per l'esportazione manuale (demo).
 
 ## Wallet (mock)
-Il Conto Interno mostra il saldo disponibile, le entrate/uscite in attesa e il ledger. Le azioni di Deposito, Prelievo e Trasferimento aggiungono movimenti con stato `in_attesa`, validando importi e (per i trasferimenti) il codice destinatario. Nessuna operazione viene persistita: al refresh i dati tornano a quelli di `wallet.json`.
+Il Conto Interno mostra il saldo disponibile in LLX Points, le entrate/uscite in attesa e il ledger. Le azioni di Ricarica, Trasferimento e Cash-out applicano le fee dinamiche in base allo Stato Attività, presentano una distinta costi prima della conferma e registrano movimenti con stato `in_attesa`. Nessuna operazione viene persistita: al refresh i dati tornano a quelli di `wallet.json`.
+
+<!-- LIFEX:EXTRA -->
+## LLX Points & Fee
+- 1 LLX = 1 € (valuta interna, solo UI).
+- Fee ricarica: 10% (Base), 8% (Access), 1% (Royal).
+- Spostamenti interni: 2% / 1% / 0% (Base/Access/Royal).
+- Cash-out: 5% (<500 LLX), 2% (500–999 LLX), 0% (≥1000 LLX).
+- Premio saldo positivo: se la streak positiva ≥ 30 giorni → cash-out gratuito (0%). (Mock, calcolo client)
+
+## Stati Attività (in base al saldo disponibile)
+- Base: 0–499 LLX
+- Access: 500–999 LLX
+- Royal: ≥ 1000 LLX
+
+## Distinta operazioni
+- Tutte le operazioni mostrano anteprima costi, fee e saldo risultante prima della conferma.
+- Ledger registra importo, fee, stato “in_attesa” (mock).
 
 ## TODO Backend
-- Persistenza dei codici cliente generati e sincronizzazione con l'albero.
-- API per checkout/catalogo e conferma degli ordini.
-- Endpoint per registrare movimenti wallet (depositi/prelievi/transfer) e aggiornare i saldi reali.
-- Gestione posizionamento albero con slot e vincoli reali.
+- Persistenza ledger e saldo, verifica streak reale, esecuzione cash-out/transfer, PDF distinta.
 
 ## Changelog UI
 - aggiunti network/catalog/wallet; generator codici cliente
+- aggiunto Wallet LLX Points, fee dinamiche, distinta costi, stati attività

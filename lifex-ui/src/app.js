@@ -1,4 +1,4 @@
-import {Topbar, Sidebar, Card, Badge, Button, Table, FormField, Modal, formatCurrency, statusBadge, state, Banner, Tree, WalletCard, LedgerTable, MiniCart, generateClientCode as generateClientCodeUtil} from './components.js';
+import {Topbar, Sidebar, Card, Badge, Button, Table, FormField, Modal, formatCurrency, statusBadge, state, Banner, Tree, WalletCard, LedgerTable, MiniCart, formatLLX, formatPercent, ACTIVITY_TIERS, generateClientCode as generateClientCodeUtil} from './components.js';
 import {initRouter} from './router.js';
 
 const main = document.getElementById('main');
@@ -93,7 +93,29 @@ async function loadData(){
   state.orders = orders;
   state.payouts = payouts;
   state.products = products;
-  state.wallet = {...wallet, ledger: wallet.ledger.slice()};
+  const typeLabels = {deposit:'Ricarica LLX', transfer:'Trasferimento', cashout:'Cash-out', bonus:'Bonus', hold:'Blocco'};
+  const normalizedLedger = (wallet.ledger || []).map(entry=>{
+    const normalizedType = entry.type === 'withdraw' ? 'cashout' : entry.type;
+    const amountLLX = Number.isFinite(entry.amountLLX) ? entry.amountLLX : Number(entry.amountEUR) || 0;
+    const feeLLX = Number.isFinite(entry.feeLLX) ? entry.feeLLX : Math.abs(Number(entry.feeEUR) || 0);
+    const netLLX = Number.isFinite(entry.netLLX) ? entry.netLLX : Number((amountLLX - feeLLX).toFixed(2));
+    return {
+      ...entry,
+      type: normalizedType,
+      typeLabel: entry.typeLabel || typeLabels[normalizedType] || normalizedType,
+      amountLLX,
+      feeLLX,
+      netLLX,
+      amountEUR: amountLLX,
+      feeEUR: feeLLX
+    };
+  });
+  state.wallet = {
+    balanceLLX: Number(wallet.balanceEUR) || 0,
+    balanceEUR: Number(wallet.balanceEUR) || 0,
+    ledger: normalizedLedger,
+    streakPositiveDays: wallet.streakPositiveDays ?? 0
+  };
   state.walletCounter = state.wallet.ledger.length;
 }
 
@@ -541,113 +563,359 @@ async function renderWallet(){
   main.innerHTML = html;
   const cardContainer = document.getElementById('wallet-card');
   const ledgerContainer = document.getElementById('wallet-ledger');
+  const operationLabels = { deposit: 'Ricarica LLX', transfer: 'Trasferimento', cashout: 'Cash-out' };
+  const cashoutBrackets = [
+    {id:'low', min:0, max:499.99, rate:0.05, label:'< 500 LLX'},
+    {id:'mid', min:500, max:999.99, rate:0.02, label:'500–999 LLX'},
+    {id:'high', min:1000, max:Infinity, rate:0, label:'≥ 1000 LLX'}
+  ];
+
+  function roundLLX(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)) return NaN;
+    return Math.round(numeric * 100) / 100;
+  }
+
+  function determineTier(available){
+    return [...ACTIVITY_TIERS].reverse().find(tier=>available >= (tier.min ?? 0)) || ACTIVITY_TIERS[0];
+  }
+
+  function getNextTier(tier){
+    const idx = ACTIVITY_TIERS.findIndex(t=>t.id===tier.id);
+    return idx>=0 && idx<ACTIVITY_TIERS.length-1 ? ACTIVITY_TIERS[idx+1] : null;
+  }
+
+  function computeProgress(tier, available){
+    const nextTier = getNextTier(tier);
+    if(!nextTier){
+      return {ratio:1,current:available,target:available,missing:0,nextTier:null};
+    }
+    const span = (nextTier.min ?? available) - (tier.min ?? 0);
+    const ratio = span <= 0 ? 1 : Math.min(Math.max((available - (tier.min ?? 0)) / span, 0), 1);
+    const missing = Math.max(0, (nextTier.min ?? available) - available);
+    return {ratio, current:available, target:nextTier.min, missing, nextTier};
+  }
+
   function computeStats(){
     const pending = state.wallet.ledger.filter(entry=>entry.status==='in_attesa');
-    const pendingPositive = pending.filter(e=>e.amountEUR>0).reduce((s,e)=>s+e.amountEUR,0);
-    const pendingNegative = pending.filter(e=>e.amountEUR<0).reduce((s,e)=>s+e.amountEUR,0);
-    const available = state.wallet.balanceEUR + pendingNegative;
-    return {pendingPositive, pendingNegative, available};
+    const pendingPositive = roundLLX(pending.filter(entry=>entry.netLLX>0).reduce((sum,entry)=>sum+entry.netLLX,0) || 0);
+    const pendingNegative = roundLLX(pending.filter(entry=>entry.netLLX<0).reduce((sum,entry)=>sum+entry.netLLX,0) || 0);
+    const available = roundLLX((state.wallet.balanceLLX ?? 0) + (pendingNegative || 0));
+    return {pendingPositive: pendingPositive || 0, pendingNegative: pendingNegative || 0, available: available || 0};
   }
+
+  function getCashoutBracket(amount){
+    const gross = Number(amount) || 0;
+    return cashoutBrackets.find(bracket=>gross >= (bracket.min ?? 0) && gross <= bracket.max) || cashoutBrackets[cashoutBrackets.length-1];
+  }
+
+  function previewDeposit(amount, stats, tier){
+    const cleanAmount = roundLLX(amount);
+    if(!Number.isFinite(cleanAmount) || cleanAmount <= 0){
+      return {valid:false, reason:'Inserisci un importo maggiore di zero.', type:'deposit', label:operationLabels.deposit, availableBefore: stats.available, tierId: tier.id, tierLabel: tier.label};
+    }
+    const feeRate = tier.depositFee;
+    const feeLLX = roundLLX(cleanAmount * feeRate);
+    const amountSigned = cleanAmount;
+    const netLLX = roundLLX(amountSigned - feeLLX);
+    const resultingBalance = roundLLX(stats.available + netLLX);
+    return {
+      valid:true,
+      type:'deposit',
+      label: operationLabels.deposit,
+      amount: cleanAmount,
+      amountSigned,
+      feeRate,
+      feeLLX,
+      netLLX,
+      resultingBalance,
+      availableBefore: stats.available,
+      tierId: tier.id,
+      tierLabel: tier.label,
+      feeTooltip: `Stato ${tier.label}: fee ricarica ${formatPercent(feeRate)}.`,
+      promoActive: false
+    };
+  }
+
+  function previewTransfer(amount, stats, tier){
+    const cleanAmount = roundLLX(amount);
+    if(!Number.isFinite(cleanAmount) || cleanAmount <= 0){
+      return {valid:false, reason:'Inserisci un importo maggiore di zero.', type:'transfer', label:operationLabels.transfer, availableBefore: stats.available, tierId: tier.id, tierLabel: tier.label};
+    }
+    const feeRate = tier.transferFee;
+    const feeLLX = roundLLX(cleanAmount * feeRate);
+    const totalOut = roundLLX(cleanAmount + feeLLX);
+    if(totalOut > stats.available + 0.005){
+      return {valid:false, reason:`Totale ${formatLLX(totalOut)} supera il saldo disponibile (${formatLLX(stats.available)}).`, type:'transfer', label:operationLabels.transfer, availableBefore: stats.available, tierId: tier.id, tierLabel: tier.label};
+    }
+    const amountSigned = -cleanAmount;
+    const netLLX = roundLLX(amountSigned - feeLLX);
+    const resultingBalance = roundLLX(stats.available + netLLX);
+    return {
+      valid:true,
+      type:'transfer',
+      label: operationLabels.transfer,
+      amount: cleanAmount,
+      amountSigned,
+      feeRate,
+      feeLLX,
+      netLLX,
+      resultingBalance,
+      availableBefore: stats.available,
+      tierId: tier.id,
+      tierLabel: tier.label,
+      feeTooltip: `Stato ${tier.label}: fee trasferimento ${formatPercent(feeRate)}.`,
+      promoActive: false
+    };
+  }
+
+  function previewCashout(amount, stats, promoActive){
+    const cleanAmount = roundLLX(amount);
+    if(!Number.isFinite(cleanAmount) || cleanAmount <= 0){
+      return {valid:false, reason:'Inserisci un importo maggiore di zero.', type:'cashout', label:operationLabels.cashout, availableBefore: stats.available, promoActive};
+    }
+    const bracket = getCashoutBracket(cleanAmount);
+    const feeRate = promoActive ? 0 : bracket.rate;
+    const feeLLX = roundLLX(cleanAmount * feeRate);
+    const totalOut = roundLLX(cleanAmount + feeLLX);
+    if(totalOut > stats.available + 0.005){
+      return {valid:false, reason:`Totale ${formatLLX(totalOut)} supera il saldo disponibile (${formatLLX(stats.available)}).`, type:'cashout', label:operationLabels.cashout, availableBefore: stats.available, promoActive};
+    }
+    const amountSigned = -cleanAmount;
+    const netLLX = roundLLX(amountSigned - feeLLX);
+    const resultingBalance = roundLLX(stats.available + netLLX);
+    const feeTooltip = promoActive
+      ? 'Promo saldo positivo attiva: cash-out gratuito.'
+      : `Cash-out ${bracket.label}: fee ${formatPercent(feeRate)}.`;
+    return {
+      valid:true,
+      type:'cashout',
+      label: operationLabels.cashout,
+      amount: cleanAmount,
+      amountSigned,
+      feeRate,
+      feeLLX,
+      netLLX,
+      resultingBalance,
+      availableBefore: stats.available,
+      tierId: null,
+      tierLabel: null,
+      feeTooltip,
+      promoActive,
+      bracket
+    };
+  }
+
+  function renderDistinta(container, preview, context={}){
+    if(!container) return;
+    if(!preview || !preview.valid){
+      const reason = preview?.reason || 'Inserisci un importo per vedere la distinta costi.';
+      container.classList.remove('final');
+      container.innerHTML = `<p class="muted">${escapeHtml(reason)}</p>`;
+      return;
+    }
+    const feePercent = formatPercent(preview.feeRate ?? 0);
+    const feeValue = preview.feeLLX ? formatLLX(-preview.feeLLX) : formatLLX(0);
+    const netClass = preview.netLLX >= 0 ? 'positive' : 'negative';
+    const netValue = formatLLX(preview.netLLX);
+    const resultValue = formatLLX(preview.resultingBalance);
+    const currentValue = formatLLX(preview.availableBefore);
+    const tierRow = preview.tierLabel ? `<li><span>Stato Attività</span><strong>${escapeHtml(preview.tierLabel)}</strong></li>` : '';
+    const bracketRow = preview.bracket?.label ? `<li><span>Fascia cash-out</span><strong>${escapeHtml(preview.bracket.label)}</strong></li>` : '';
+    const promoBadge = preview.type==='cashout' && preview.promoActive && preview.feeRate === 0
+      ? '<span class="badge gold promo-badge">Saldo positivo → cash-out gratis</span>'
+      : '';
+    const finalNote = context.final ? '<p class="muted success">Operazione registrata in attesa di approvazione.</p>' : '';
+    container.classList.toggle('final', Boolean(context.final));
+    container.innerHTML = `
+      <h4>Distinta operazione</h4>
+      ${promoBadge}
+      <ul class="distinta-list">
+        <li><span>Operazione</span><strong>${escapeHtml(preview.label)}</strong></li>
+        ${tierRow}
+        ${bracketRow}
+        <li><span>Importo</span><strong class="llx">${formatLLX(preview.amount)}</strong></li>
+        <li><span>Fee</span><strong class="llx">${feeValue}</strong><em>${feePercent}</em></li>
+        <li><span>Netto conto</span><strong class="llx ${netClass}">${netValue}</strong></li>
+        <li><span>Saldo attuale</span><strong class="llx">${currentValue}</strong></li>
+        <li><span>Saldo risultante</span><strong class="llx">${resultValue}</strong></li>
+      </ul>
+      ${finalNote}
+    `;
+  }
+
+  function addLedgerEntry(entry){
+    state.walletCounter += 1;
+    const id = `L-${String(state.walletCounter).padStart(3,'0')}`;
+    state.wallet.ledger = [{...entry, id}, ...state.wallet.ledger];
+    renderWalletUI();
+  }
+
+  function buildLedgerEntry(type, data, preview){
+    const method = (data.method || '').trim();
+    const note = (data.notes || '').trim();
+    let desc = '';
+    if(type==='deposit'){
+      desc = method ? `Ricarica via ${method}` : 'Ricarica LLX';
+    } else if(type==='transfer'){
+      desc = `Trasferimento a ${preview.recipient || data.recipient}`;
+    } else {
+      desc = method ? `Cash-out verso ${method}` : 'Cash-out';
+    }
+    if(note){
+      desc += ` — ${note}`;
+    }
+    return {
+      when: new Date().toISOString(),
+      type,
+      status: 'in_attesa',
+      desc,
+      typeLabel: operationLabels[type],
+      amountLLX: preview.amountSigned,
+      feeLLX: preview.feeLLX,
+      netLLX: preview.netLLX,
+      feeRate: preview.feeRate,
+      feeTooltip: preview.feeTooltip,
+      promoActive: preview.promoActive,
+      amountEUR: preview.amountSigned,
+      feeEUR: preview.feeLLX
+    };
+  }
+
   function renderWalletUI(){
     const stats = computeStats();
+    const tier = determineTier(stats.available);
+    const progress = computeProgress(tier, stats.available);
+    const promoActive = state.wallet.streakPositiveDays >= 30;
     cardContainer.innerHTML = WalletCard({
-      balanceEUR: state.wallet.balanceEUR,
+      balanceLLX: Number(state.wallet.balanceLLX) || 0,
+      availableLLX: stats.available,
       pendingPositive: stats.pendingPositive,
       pendingNegative: stats.pendingNegative,
-      availableEUR: stats.available
+      tier,
+      nextTier: progress.nextTier,
+      progress,
+      streakDays: state.wallet.streakPositiveDays,
+      promoActive
     });
     ledgerContainer.innerHTML = LedgerTable(state.wallet.ledger);
   }
-  function addLedgerEntry(entry){
-    state.walletCounter += 1;
-    state.wallet.ledger = [{...entry, id: `L-${String(state.walletCounter).padStart(3,'0')}`} , ...state.wallet.ledger];
-    renderWalletUI();
-  }
+
   function openWalletModal(type){
     let title='';
     let form='';
     if(type==='deposit'){
-      title='Deposito fondi';
+      title='Ricarica LLX';
       form=`<form id="wallet-form" class="wallet-form">
-        <label>Importo (€)<br><input class="input" name="amount" type="number" min="0" step="0.01" required></label>
-        <label>Metodo<br><input class="input" name="method" placeholder="Bonifico, POS..."></label>
+        <label>Importo (LLX)<br><input class="input" name="amount" type="number" min="0" step="0.01" required></label>
+        <label>Metodo<br><select class="input" name="method">
+          <option value="Bonifico">Bonifico</option>
+          <option value="Carta">Carta</option>
+          <option value="Wallet esterno">Wallet esterno</option>
+        </select></label>
         <label>Note<br><input class="input" name="notes" placeholder="Note interne"></label>
       </form>`;
-    } else if(type==='withdraw'){
-      title='Richiedi prelievo';
+    } else if(type==='transfer'){
+      title='Trasferisci LLX';
+      const options = (state.members || []).map(m=>`<option value="${m.code}">${escapeHtml(m.fullName)} (${m.code})</option>`).join('');
       form=`<form id="wallet-form" class="wallet-form">
-        <label>Importo (€)<br><input class="input" name="amount" type="number" min="0" step="0.01" required></label>
-        <label>IBAN / metodo<br><input class="input" name="method" placeholder="IT00..." required></label>
-        <label>Note<br><input class="input" name="notes" placeholder="Note"></label>
-      </form>`;
-    } else {
-      title='Trasferisci fondi';
-      const options = state.members.map(m=>`<option value="${m.code}">${m.fullName} (${m.code})</option>`).join('');
-      form=`<form id="wallet-form" class="wallet-form">
-        <label>Importo (€)<br><input class="input" name="amount" type="number" min="0" step="0.01" required></label>
+        <label>Importo (LLX)<br><input class="input" name="amount" type="number" min="0" step="0.01" required></label>
         <label>Destinatario<br><input class="input" name="recipient" list="wallet-members" placeholder="Codice cliente" required></label>
         <datalist id="wallet-members">${options}</datalist>
         <label>Note<br><input class="input" name="notes" placeholder="Motivazione"></label>
       </form>`;
+    } else {
+      title='Cash-out';
+      form=`<form id="wallet-form" class="wallet-form">
+        <label>Importo (LLX)<br><input class="input" name="amount" type="number" min="0" step="0.01" required></label>
+        <label>Metodo<br><select class="input" name="method">
+          <option value="IBAN">IBAN</option>
+          <option value="Carta">Carta</option>
+          <option value="Wallet esterno">Wallet esterno</option>
+        </select></label>
+        <label>Note<br><input class="input" name="notes" placeholder="Note"></label>
+      </form>`;
     }
-    openModal(Modal('wallet-modal',title,form,
-      `${Button('gold','Conferma','type="button" id="wallet-submit"')} ${Button('ghost','Annulla','type="button" id="modal-close"')}`));
-    document.getElementById('modal-close').addEventListener('click',closeModal);
-    document.getElementById('wallet-submit').addEventListener('click',()=>{
-      const formEl = document.getElementById('wallet-form');
-      const data = Object.fromEntries(new FormData(formEl).entries());
-      const amount = parseFloat(data.amount);
-      if(!amount || amount<=0){
-        showToast('Inserire un importo valido.','warn');
+    const distintaBox = '<div class="distinta" id="wallet-distinta"><p class="muted">Inserisci un importo per vedere la distinta costi.</p></div>';
+    openModal(Modal('wallet-modal',title,`${form}${distintaBox}`,
+      `${Button('gold','Conferma','type="button" id="wallet-submit" disabled')} ${Button('ghost','Annulla','type="button" id="modal-close"')}`));
+    const formEl = document.getElementById('wallet-form');
+    const submitBtn = document.getElementById('wallet-submit');
+    const closeBtn = document.getElementById('modal-close');
+    const distintaEl = document.getElementById('wallet-distinta');
+    let currentPreview = null;
+
+    function updatePreview(){
+      const stats = computeStats();
+      const tier = determineTier(stats.available);
+      const promoActive = state.wallet.streakPositiveDays >= 30;
+      const amountValue = formEl.elements['amount']?.value;
+      let preview;
+      if(type==='deposit') preview = previewDeposit(amountValue, stats, tier);
+      else if(type==='transfer') preview = previewTransfer(amountValue, stats, tier);
+      else preview = previewCashout(amountValue, stats, promoActive);
+      if(type==='transfer'){
+        const recipient = formEl.elements['recipient']?.value?.trim();
+        if(!recipient){
+          preview = {...preview, valid:false, reason:'Inserisci un codice destinatario valido.'};
+        } else if(!state.membersIndex?.has(recipient)){
+          preview = {...preview, valid:false, reason:'Destinatario non trovato in anagrafica.'};
+        } else if(preview.valid){
+          preview.recipient = recipient;
+        }
+      }
+      renderDistinta(distintaEl, preview, {final:false});
+      if(preview.valid){
+        currentPreview = preview;
+        submitBtn.disabled = false;
+      } else {
+        currentPreview = null;
+        submitBtn.disabled = true;
+      }
+    }
+
+    formEl.addEventListener('input', updatePreview);
+    formEl.addEventListener('change', updatePreview);
+    closeBtn.addEventListener('click', closeModal);
+    updatePreview();
+
+    submitBtn.addEventListener('click', ()=>{
+      if(!currentPreview){
+        showToast('Controlla i dati inseriti prima di continuare.','warn');
         return;
       }
-      if(type!=='deposit'){
-        const available = computeStats().available;
-        if(amount>available){
-          showToast('Importo superiore al saldo disponibile.','warn');
-          return;
-        }
-      }
       if(type==='transfer'){
-        const recipient = data.recipient?.trim();
-        if(!state.members.some(m=>m.code===recipient)){
-          showToast('Codice destinatario non valido.','warn');
+        const recipient = currentPreview.recipient;
+        if(!recipient || !state.membersIndex?.has(recipient)){
+          showToast('Destinatario non valido.','warn');
           return;
         }
       }
-      const base = {
-        when: new Date().toISOString(),
-        type,
-        status: 'in_attesa'
-      };
-      let entry;
-      if(type==='deposit'){
-        entry = {
-          ...base,
-          desc: data.method ? `Deposito via ${data.method}` : 'Deposito wallet',
-          amountEUR: Math.abs(amount)
-        };
-      } else if(type==='withdraw'){
-        entry = {
-          ...base,
-          desc: data.method ? `Prelievo verso ${data.method}` : 'Richiesta prelievo',
-          amountEUR: -Math.abs(amount)
-        };
-      } else {
-        entry = {
-          ...base,
-          desc: `Trasferimento a ${data.recipient}`,
-          amountEUR: -Math.abs(amount)
-        };
+      if(type!=='deposit'){
+        const latestStats = computeStats();
+        const totalImpact = Math.abs(currentPreview.netLLX);
+        if(totalImpact > latestStats.available + 0.005){
+          showToast('Saldo disponibile insufficiente per completare l\'operazione.','warn');
+          updatePreview();
+          return;
+        }
       }
+      const data = Object.fromEntries(new FormData(formEl).entries());
+      const entry = buildLedgerEntry(type, data, currentPreview);
+      // TODO: sostituire con chiamata API reale per registrare l'operazione sul backend
       addLedgerEntry(entry);
+      renderDistinta(distintaEl, currentPreview, {final:true});
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Registrato';
+      Array.from(formEl.elements).forEach(el=>{ el.disabled = true; });
+      closeBtn.textContent = 'Chiudi';
       showToast('Operazione registrata in attesa di approvazione (demo).','info');
-      closeModal();
     });
   }
-  document.getElementById('wallet-deposit').addEventListener('click',()=>openWalletModal('deposit'));
-  document.getElementById('wallet-withdraw').addEventListener('click',()=>openWalletModal('withdraw'));
-  document.getElementById('wallet-transfer').addEventListener('click',()=>openWalletModal('transfer'));
+
+  document.getElementById('wallet-deposit')?.addEventListener('click',()=>openWalletModal('deposit'));
+  document.getElementById('wallet-transfer')?.addEventListener('click',()=>openWalletModal('transfer'));
+  document.getElementById('wallet-cashout')?.addEventListener('click',()=>openWalletModal('cashout'));
   renderWalletUI();
 }
 
