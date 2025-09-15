@@ -1,0 +1,19 @@
+<section>
+  <h1>Veicoli</h1>
+  <div class="grid cols-4" id="vehicle-cards" style="margin:var(--llx-space-m) 0"></div>
+  <div class="filters" style="margin:var(--llx-space-m) 0;display:flex;gap:var(--llx-space-m);">
+    <select id="vehicle-category" class="input" aria-label="Filtro categoria">
+      <option value="">Tutte le categorie</option>
+      <option value="RS">RS</option>
+      <option value="SUV">SUV</option>
+      <option value="Luxury">Luxury</option>
+    </select>
+    <select id="vehicle-status" class="input" aria-label="Filtro stato">
+      <option value="">Tutti gli stati</option>
+      <option value="disponibile">Disponibile</option>
+      <option value="noleggiato">Noleggiato</option>
+      <option value="manutenzione">Manutenzione</option>
+    </select>
+  </div>
+  <div id="vehicles-table"></div>
+</section>

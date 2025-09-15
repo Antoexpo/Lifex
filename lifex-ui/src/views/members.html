@@ -1,0 +1,19 @@
+<section>
+  <div class="toolbar" style="display:flex;justify-content:space-between;align-items:center;">
+    <h1>Membri</h1>
+    <div class="actions">
+      <button id="member-create" class="btn gold">Crea membro</button>
+      <button id="member-export" class="btn ghost">Export</button>
+    </div>
+  </div>
+  <div class="filters" style="margin:var(--llx-space-m) 0;display:flex;gap:var(--llx-space-m);">
+    <input id="member-search" class="input" placeholder="Cerca" aria-label="Cerca" />
+    <select id="member-status" class="input" aria-label="Filtro stato">
+      <option value="">Tutti</option>
+      <option value="attivo">Attivo</option>
+      <option value="sospeso">Sospeso</option>
+      <option value="scaduto">Scaduto</option>
+    </select>
+  </div>
+  <div id="members-table"></div>
+</section>
