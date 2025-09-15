@@ -1,0 +1,182 @@
+[
+  {
+    "id": "o001",
+    "memberId": "m007",
+    "vehicleId": "v003",
+    "type": "extra",
+    "amountEUR": 174.0,
+    "status": "pagato",
+    "createdAt": "2024-01-02"
+  },
+  {
+    "id": "o002",
+    "memberId": "m013",
+    "vehicleId": "v014",
+    "type": "fee",
+    "amountEUR": 53.22,
+    "status": "pagato",
+    "createdAt": "2024-01-03"
+  },
+  {
+    "id": "o003",
+    "memberId": "m001",
+    "vehicleId": "v017",
+    "type": "extra",
+    "amountEUR": 142.9,
+    "status": "pagato",
+    "createdAt": "2024-01-04"
+  },
+  {
+    "id": "o004",
+    "memberId": "m020",
+    "vehicleId": "v010",
+    "type": "fee",
+    "amountEUR": 704.11,
+    "status": "pagato",
+    "createdAt": "2024-01-05"
+  },
+  {
+    "id": "o005",
+    "memberId": "m004",
+    "vehicleId": "v013",
+    "type": "extra",
+    "amountEUR": 127.28,
+    "status": "in_attesa",
+    "createdAt": "2024-01-06"
+  },
+  {
+    "id": "o006",
+    "memberId": "m015",
+    "vehicleId": "v004",
+    "type": "fee",
+    "amountEUR": 176.75,
+    "status": "rimborsato",
+    "createdAt": "2024-01-07"
+  },
+  {
+    "id": "o007",
+    "memberId": "m012",
+    "vehicleId": null,
+    "type": "canone",
+    "amountEUR": 314.49,
+    "status": "pagato",
+    "createdAt": "2024-01-08"
+  },
+  {
+    "id": "o008",
+    "memberId": "m002",
+    "vehicleId": null,
+    "type": "extra",
+    "amountEUR": 296.69,
+    "status": "in_attesa",
+    "createdAt": "2024-01-09"
+  },
+  {
+    "id": "o009",
+    "memberId": "m012",
+    "vehicleId": "v002",
+    "type": "extra",
+    "amountEUR": 963.14,
+    "status": "rimborsato",
+    "createdAt": "2024-01-10"
+  },
+  {
+    "id": "o010",
+    "memberId": "m016",
+    "vehicleId": "v015",
+    "type": "extra",
+    "amountEUR": 463.67,
+    "status": "rimborsato",
+    "createdAt": "2024-01-11"
+  },
+  {
+    "id": "o011",
+    "memberId": "m006",
+    "vehicleId": null,
+    "type": "extra",
+    "amountEUR": 326.48,
+    "status": "pagato",
+    "createdAt": "2024-01-12"
+  },
+  {
+    "id": "o012",
+    "memberId": "m005",
+    "vehicleId": null,
+    "type": "fee",
+    "amountEUR": 800.14,
+    "status": "rimborsato",
+    "createdAt": "2024-01-13"
+  },
+  {
+    "id": "o013",
+    "memberId": "m003",
+    "vehicleId": "v020",
+    "type": "canone",
+    "amountEUR": 89.14,
+    "status": "pagato",
+    "createdAt": "2024-01-14"
+  },
+  {
+    "id": "o014",
+    "memberId": "m005",
+    "vehicleId": "v010",
+    "type": "fee",
+    "amountEUR": 425.05,
+    "status": "rimborsato",
+    "createdAt": "2024-01-15"
+  },
+  {
+    "id": "o015",
+    "memberId": "m005",
+    "vehicleId": null,
+    "type": "fee",
+    "amountEUR": 744.0,
+    "status": "pagato",
+    "createdAt": "2024-01-16"
+  },
+  {
+    "id": "o016",
+    "memberId": "m010",
+    "vehicleId": null,
+    "type": "extra",
+    "amountEUR": 742.23,
+    "status": "in_attesa",
+    "createdAt": "2024-01-17"
+  },
+  {
+    "id": "o017",
+    "memberId": "m013",
+    "vehicleId": "v010",
+    "type": "fee",
+    "amountEUR": 153.22,
+    "status": "rimborsato",
+    "createdAt": "2024-01-18"
+  },
+  {
+    "id": "o018",
+    "memberId": "m016",
+    "vehicleId": "v011",
+    "type": "canone",
+    "amountEUR": 505.13,
+    "status": "rimborsato",
+    "createdAt": "2024-01-19"
+  },
+  {
+    "id": "o019",
+    "memberId": "m016",
+    "vehicleId": "v010",
+    "type": "fee",
+    "amountEUR": 748.01,
+    "status": "pagato",
+    "createdAt": "2024-01-20"
+  },
+  {
+    "id": "o020",
+    "memberId": "m006",
+    "vehicleId": "v013",
+    "type": "extra",
+    "amountEUR": 132.58,
+    "status": "pagato",
+    "createdAt": "2024-01-21"
+  }
+]

@@ -1,0 +1,20 @@
+<section>
+  <h1>Ordini</h1>
+  <div class="filters" style="margin:var(--llx-space-m) 0;display:flex;gap:var(--llx-space-m);flex-wrap:wrap;">
+    <select id="order-status" class="input" aria-label="Filtro stato">
+      <option value="">Tutti gli stati</option>
+      <option value="pagato">Pagato</option>
+      <option value="in_attesa">In attesa</option>
+      <option value="rimborsato">Rimborsato</option>
+    </select>
+    <select id="order-type" class="input" aria-label="Filtro tipo">
+      <option value="">Tutti i tipi</option>
+      <option value="canone">Canone</option>
+      <option value="fee">Fee</option>
+      <option value="extra">Extra</option>
+    </select>
+    <input id="order-period" class="input" placeholder="Periodo YYYY-MM" aria-label="Periodo" />
+  </div>
+  <div id="orders-total" style="margin-bottom:var(--llx-space-m);"></div>
+  <div id="orders-table"></div>
+</section>
