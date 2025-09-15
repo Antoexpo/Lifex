@@ -62,6 +62,10 @@ export function Topbar() {
       <button id="sidebar-toggle" aria-label="Toggle menu">
         <svg width="24" height="24"><use href="../public/icons.svg#dashboard"></use></svg>
       </button>
+      <a href="#/dashboard" class="btn ghost topbar-dashboard" aria-label="Torna alla dashboard principale">
+        <svg width="20" height="20"><use href="../public/icons.svg#dashboard"></use></svg>
+        <span>Dashboard</span>
+      </a>
       <div id="mini-cart">${MiniCart(state.cart)}</div>
       <button aria-label="Search">
         <svg width="24" height="24"><use href="../public/icons.svg#search"></use></svg>

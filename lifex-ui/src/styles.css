@@ -79,7 +79,7 @@ a:hover { text-decoration: underline; }
 .badge.err { background: var(--llx-err); color: #fff; }
 .badge.gold { background: var(--llx-gold); color: #000; }
 
-.btn { padding: var(--llx-space-s) var(--llx-space-m); border-radius: var(--llx-radius); border:1px solid var(--llx-border); cursor:pointer; background: var(--llx-surface-alt); color: var(--llx-text); }
+.btn { padding: var(--llx-space-s) var(--llx-space-m); border-radius: var(--llx-radius); border:1px solid var(--llx-border); cursor:pointer; background: var(--llx-surface-alt); color: var(--llx-text); display:inline-flex; align-items:center; gap:var(--llx-space-xs); text-decoration:none; }
 .btn.gold { background: var(--llx-gold); color: #000; border-color: var(--llx-gold); }
 .btn.ghost { background: transparent; }
 .btn[disabled] { opacity:0.5; cursor:not-allowed; }
