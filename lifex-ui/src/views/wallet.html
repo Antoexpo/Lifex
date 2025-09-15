@@ -2,9 +2,17 @@
   <div class="toolbar" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:var(--llx-space-m);">
     <h1>Conto Interno</h1>
     <div class="actions" style="display:flex;flex-wrap:wrap;gap:var(--llx-space-s);">
-      <button id="wallet-deposit" class="btn gold">Deposita</button>
-      <button id="wallet-withdraw" class="btn ghost">Preleva</button>
-      <button id="wallet-transfer" class="btn ghost">Trasferisci</button>
+      <button id="wallet-deposit" class="btn gold btn-action">
+        <span class="btn-title">Ricarica LLX</span>
+        <span class="btn-subtitle">Deposita</span>
+      </button>
+      <button id="wallet-transfer" class="btn ghost btn-action">
+        <span class="btn-title">Trasferisci LLX</span>
+      </button>
+      <button id="wallet-cashout" class="btn ghost btn-action">
+        <span class="btn-title">Cash-out</span>
+        <span class="btn-subtitle">Preleva</span>
+      </button>
     </div>
   </div>
   <p class="muted" style="color:var(--llx-text-muted);margin:var(--llx-space-s) 0 var(--llx-space-m);">Operazioni simulate lato client: nessun movimento reale viene inviato.</p>

@@ -10,9 +10,22 @@ export function padRight(str='', len=0, char='0'){
   return (str ?? '').toString().padEnd(len, char).slice(0, len);
 }
 
+const llxFormatter = new Intl.NumberFormat('it-IT',{minimumFractionDigits:2, maximumFractionDigits:2});
+
 export function formatCurrency(eur){
   const value = Number.isFinite(eur) ? eur : 0;
   return new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(value);
+}
+
+export function formatLLX(value){
+  const amount = Number.isFinite(value) ? value : 0;
+  return `${llxFormatter.format(amount)} LLX`;
+}
+
+export function formatPercent(rate){
+  const value = Number.isFinite(rate) ? rate * 100 : 0;
+  const normalized = Number.isInteger(value) ? value.toFixed(0) : value.toFixed(2);
+  return `${normalized.replace(/\.00$/,'')}%`;
 }
 
 export function generateClientCode({fiscalCode='', year}){
@@ -69,6 +82,34 @@ export function Sidebar(active) {
 export const Card = (title, content) => `<div class="card"><h3>${title}</h3>${content}</div>`;
 
 export const Badge = (type, text) => `<span class="badge ${type}">${text}</span>`;
+
+export const ACTIVITY_TIERS = [
+  {id:'base', label:'Base', min:0, max:499, depositFee:0.10, transferFee:0.02},
+  {id:'access', label:'Access', min:500, max:999, depositFee:0.08, transferFee:0.01},
+  {id:'royal', label:'Royal', min:1000, max:Infinity, depositFee:0.01, transferFee:0}
+];
+
+const activityTierMap = ACTIVITY_TIERS.reduce((acc,tier)=>{
+  acc[tier.id] = tier;
+  return acc;
+},{});
+
+export function ActivityBadge(tier){
+  const meta = (tier && typeof tier === 'object') ? tier : activityTierMap[tier] || activityTierMap.base;
+  const tooltip = `Fee ricarica ${formatPercent(meta.depositFee)} · transfer ${formatPercent(meta.transferFee)}`;
+  const safeTooltip = tooltip.replace(/"/g,'&quot;');
+  return `<span class="badge tier-${meta.id}" title="${safeTooltip}">${meta.label}</span>`;
+}
+
+function escapeHtml(str=''){
+  return (str ?? '').toString().replace(/[&<>"']/g, ch=>({
+    '&':'&amp;',
+    '<':'&lt;',
+    '>':'&gt;',
+    '"':'&quot;',
+    "'":'&#39;'
+  }[ch] || ch));
+}
 
 export const Banner = (message, variant='info') => `<div class="banner ${variant}">${message}</div>`;
 
@@ -162,43 +203,122 @@ export function Tree(treeData, options={}){
   return `<ul class="llx-tree" data-root="${root.code}" data-lazy="${lazy}">${renderNode(root,1)}</ul>`;
 }
 
-export function WalletCard({balanceEUR=0, availableEUR=0, pendingPositive=0, pendingNegative=0}={}){
+export function WalletCard({
+  balanceLLX=0,
+  availableLLX=0,
+  pendingPositive=0,
+  pendingNegative=0,
+  tier=ACTIVITY_TIERS[0],
+  nextTier=null,
+  progress={ratio:0,current:0,target:0,missing:0},
+  streakDays=0,
+  promoActive=false
+}={}){
+  const resolvedTier = (tier && typeof tier === 'object') ? tier : activityTierMap[tier] || ACTIVITY_TIERS[0];
+  const currentLLX = llxFormatter.format(progress?.current ?? availableLLX);
+  const targetLLX = llxFormatter.format(progress?.target ?? availableLLX);
+  const missingLLX = llxFormatter.format(Math.max(0, progress?.missing ?? 0));
+  const hasNextTier = Boolean(nextTier);
+  const progressRatio = Math.min(Math.max(progress?.ratio ?? 0, 0), 1);
+  const progressText = hasNextTier
+    ? `${currentLLX} / ${targetLLX} LLX → manca ${missingLLX} LLX a ${nextTier.label}`
+    : `${currentLLX} LLX · livello massimo (${resolvedTier.label})`;
+  const promoText = promoActive ? '<span class="badge gold promo-badge">Saldo positivo → cash-out gratis</span>' : '';
   return `
     <div class="card wallet-card">
-      <h3>Saldo disponibile</h3>
-      <p class="wallet-balance">${formatCurrency(availableEUR || balanceEUR)}</p>
+      <div class="wallet-card-header">
+        <div class="wallet-card-main">
+          <h3>Saldo disponibile</h3>
+          <p class="wallet-balance">
+            <span class="llx">${formatLLX(availableLLX)}</span>
+            <span class="eur">${formatCurrency(availableLLX)}</span>
+          </p>
+          <p class="micro-copy">1 LLX = 1 € (valuta interna)</p>
+        </div>
+        <div class="wallet-card-activity">
+          <span class="label">Stato Attività</span>
+          ${ActivityBadge(resolvedTier)}
+          <p class="muted activity-copy">Lo Stato Attività dipende da quanto lasci sul conto disponibile. Più saldo medio mantieni, minori fee applichiamo.</p>
+        </div>
+      </div>
       <div class="wallet-breakdown">
-        <div><span>Saldo contabile</span><strong>${formatCurrency(balanceEUR)}</strong></div>
-        <div><span>Entrate in attesa</span><strong>${formatCurrency(pendingPositive)}</strong></div>
-        <div><span>Uscite bloccate</span><strong>${formatCurrency(Math.abs(pendingNegative))}</strong></div>
+        <div>
+          <span>Saldo contabile</span>
+          <strong><span class="llx">${formatLLX(balanceLLX)}</span><span class="eur">${formatCurrency(balanceLLX)}</span></strong>
+        </div>
+        <div>
+          <span>Entrate in attesa</span>
+          <strong><span class="llx">${formatLLX(pendingPositive)}</span><span class="eur">${formatCurrency(pendingPositive)}</span></strong>
+        </div>
+        <div>
+          <span>Uscite bloccate</span>
+          <strong><span class="llx">${formatLLX(pendingNegative)}</span><span class="eur">${formatCurrency(pendingNegative)}</span></strong>
+        </div>
+      </div>
+      <div class="activity-progress">
+        <div class="progress-header">
+          <div class="progress-label">${progressText}</div>
+          ${promoText}
+        </div>
+        <div class="progress-bar"><span style="width:${Math.round(progressRatio*100)}%"></span></div>
+        <div class="progress-meta">Streak positiva: ${streakDays} giorni</div>
       </div>
     </div>
   `;
 }
 
+const defaultTypeLabels = {
+  deposit: 'Ricarica LLX',
+  transfer: 'Trasferimento',
+  cashout: 'Cash-out',
+  bonus: 'Bonus',
+  hold: 'Blocco',
+  withdraw: 'Cash-out',
+  adjustment: 'Rettifica'
+};
+
+const defaultFeeInfo = {
+  deposit: 'Ricarica LLX: fee variabile in base allo Stato Attività.',
+  transfer: 'Trasferimento interno: fee variabile in base allo Stato Attività.',
+  cashout: 'Cash-out: fee per scaglioni importo (5% / 2% / 0%).',
+  bonus: 'Bonus: nessuna fee applicata.',
+  hold: 'Blocco cauzionale: importo riservato.'
+};
+
 export function LedgerTable(rows=[]){
   const body = rows.map(row=>{
-    const amountClass = row.amountEUR >= 0 ? 'positive' : 'negative';
+    const amountValue = Number.isFinite(row.amountLLX) ? row.amountLLX : Number(row.amountEUR) || 0;
+    const feeValue = Number.isFinite(row.feeLLX) ? row.feeLLX : Math.abs(Number(row.feeEUR) || 0);
+    const netFee = feeValue ? -Math.abs(feeValue) : 0;
+    const amountClass = amountValue >= 0 ? 'positive' : 'negative';
+    const feeClass = netFee >= 0 ? 'positive' : 'negative';
     const when = new Date(row.when);
     const formattedDate = isNaN(when) ? row.when : when.toLocaleString('it-IT',{dateStyle:'short', timeStyle:'short'});
+    const typeKey = row.type || 'altro';
+    const typeLabel = row.typeLabel || defaultTypeLabels[typeKey] || typeKey;
+    const tooltip = row.feeTooltip || defaultFeeInfo[typeKey] || '';
+    const safeTooltip = escapeHtml(tooltip);
+    const status = statusBadge(row.status);
     return `
       <tr>
+        <td><span class="badge ledger-type" title="${safeTooltip}">${typeLabel}</span></td>
+        <td>${escapeHtml(row.desc ?? '')}</td>
+        <td class="amount ${amountClass}">${formatLLX(amountValue)}</td>
+        <td class="amount ${feeClass}">${formatLLX(netFee)}</td>
+        <td>${status}</td>
         <td>${formattedDate}</td>
-        <td>${row.type}</td>
-        <td>${row.desc}</td>
-        <td class="amount ${amountClass}">${formatCurrency(row.amountEUR)}</td>
-        <td>${statusBadge(row.status)}</td>
       </tr>`;
   }).join('');
   return `
     <table class="table ledger">
       <thead>
         <tr>
-          <th>Data</th>
           <th>Tipo</th>
           <th>Descrizione</th>
-          <th>Importo</th>
+          <th>Importo (LLX)</th>
+          <th>Fee (LLX)</th>
           <th>Stato</th>
+          <th>Data/Ora</th>
         </tr>
       </thead>
       <tbody>${body}</tbody>
