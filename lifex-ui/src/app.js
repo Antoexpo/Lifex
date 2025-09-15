@@ -18,16 +18,12 @@ const LLX = {
     TRANSFER_PCT: {
       BASE: 0.02,
       ACCESS: 0.01,
-      ROYAL: 0
+      ROYAL: 0.01
     },
-    CASHOUT_BRACKETS: [
-      {id: 'low', min: 0, max: 499.99, pct: 0.05, label: '< 500 LLX'},
-      {id: 'mid', min: 500, max: 999.99, pct: 0.02, label: '500–999 LLX'},
-      {id: 'high', min: 1000, max: Infinity, pct: 0, label: '≥ 1000 LLX'}
-    ],
-    POSITIVE_BALANCE_REWARD: {
-      enabled: true,
-      streakDays: 30
+    CASHOUT_PCT: {
+      BASE: 0.05,
+      ACCESS: 0.03,
+      ROYAL: 0
     }
   }
 };
@@ -631,11 +627,11 @@ async function renderWallet(){
   const cardContainer = document.getElementById('wallet-card');
   const ledgerContainer = document.getElementById('wallet-ledger');
   const operationLabels = { deposit: 'Ricarica LLX', transfer: 'Trasferimento', cashout: 'Cash-out' };
-  const cashoutBrackets = LLX.FEES.CASHOUT_BRACKETS ?? [
-    {id:'low', min:0, max:499.99, pct:0.05, label:'< 500 LLX'},
-    {id:'mid', min:500, max:999.99, pct:0.02, label:'500–999 LLX'},
-    {id:'high', min:1000, max:Infinity, pct:0, label:'≥ 1000 LLX'}
-  ];
+  const cashoutRates = LLX.FEES.CASHOUT_PCT ?? {
+    BASE: 0.05,
+    ACCESS: 0.03,
+    ROYAL: 0
+  };
 
   function roundLLX(value){
     const numeric = Number(value);
@@ -669,11 +665,10 @@ async function renderWallet(){
     return Number(state.wallet?.positiveStreakDays ?? state.wallet?.streakPositiveDays ?? 0) || 0;
   }
 
-  function hasPositiveBalanceReward(){
-    const reward = LLX.FEES.POSITIVE_BALANCE_REWARD;
-    if(!reward?.enabled) return false;
-    const target = Number(reward.streakDays ?? 0) || 0;
-    return getPositiveStreakDays() >= target;
+  function hasPositiveBalanceReward(currentState=state){
+    const tierKey = getActivityTierFromEff(currentState);
+    const feeRate = getCashoutRateForTier(tierKey);
+    return feeRate === 0;
   }
 
   function getTierMeta(tier){
@@ -712,18 +707,13 @@ async function renderWallet(){
     return {pendingPositive: pendingPositive || 0, pendingNegative, available, holds: holdsValue, pendingOut: pendingOutValue};
   }
 
-  function getCashoutBracket(amount){
-    const gross = Number(amount) || 0;
-    const list = Array.isArray(cashoutBrackets) && cashoutBrackets.length
-      ? cashoutBrackets
-      : [{id:'default', min:0, max:Infinity, pct:0, label:'Saldo disponibile'}];
-    const found = list.find(bracket=>gross >= (bracket.min ?? 0) && gross <= (bracket.max ?? Infinity));
-    return found || list[list.length-1];
-  }
-
-  function getCashoutPct(amount){
-    const bracket = getCashoutBracket(amount);
-    return Number.isFinite(bracket?.pct) ? bracket.pct : 0;
+  function getCashoutRateForTier(tierKey){
+    const configured = cashoutRates?.[tierKey];
+    if(Number.isFinite(configured)){
+      return configured;
+    }
+    const tierMeta = getTierMeta(tierKey);
+    return Number.isFinite(tierMeta?.cashoutFee) ? tierMeta.cashoutFee : 0;
   }
 
   function previewDeposit(amount, currentState=state){
@@ -835,7 +825,10 @@ async function renderWallet(){
 
   function previewCashout(amount, currentState=state){
     const effBefore = getEffectiveAvailable(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
-    const promoActive = hasPositiveBalanceReward();
+    const tierKey = getActivityTierFromEff(currentState);
+    const tierMeta = getTierMeta(tierKey);
+    const feeRate = getCashoutRateForTier(tierKey);
+    const promoActive = feeRate === 0;
     const cleanAmount = roundLLX(amount);
     if(!Number.isFinite(cleanAmount) || cleanAmount <= 0){
       return {
@@ -847,12 +840,13 @@ async function renderWallet(){
         promoActive,
         pendingOutImpact: 0,
         totalDebit: 0,
+        tierId: tierMeta.id,
+        tierLabel: tierMeta.label,
+        feeRate,
+        feeLLX: 0,
         streakOk: promoActive
       };
     }
-    const basePct = getCashoutPct(cleanAmount);
-    const feeRate = promoActive ? 0 : basePct;
-    const bracket = getCashoutBracket(cleanAmount);
     const feeLLX = roundLLX(cleanAmount * feeRate);
     const totalOut = roundLLX(cleanAmount + feeLLX);
     if(cleanAmount > effBefore + 0.005){
@@ -865,7 +859,8 @@ async function renderWallet(){
         promoActive,
         pendingOutImpact: 0,
         totalDebit: totalOut,
-        bracket,
+        tierId: tierMeta.id,
+        tierLabel: tierMeta.label,
         streakOk: promoActive
       };
     }
@@ -873,8 +868,8 @@ async function renderWallet(){
     const netLLX = roundLLX(amountSigned - feeLLX);
     const effAfter = roundLLX(effBefore - cleanAmount);
     const feeTooltip = promoActive
-      ? 'Promo saldo positivo attiva: cash-out gratuito.'
-      : `Cash-out ${bracket.label}: fee ${formatPercent(feeRate)}.`;
+      ? `Stato ${tierMeta.label}: cash-out gratuito.`
+      : `Stato ${tierMeta.label}: fee cash-out ${formatPercent(feeRate)}.`;
     return {
       valid:true,
       type:'cashout',
@@ -887,11 +882,10 @@ async function renderWallet(){
       netLLX,
       resultingBalance: effAfter,
       availableBefore: effBefore,
-      tierId: null,
-      tierLabel: null,
+      tierId: tierMeta.id,
+      tierLabel: tierMeta.label,
       feeTooltip,
       promoActive,
-      bracket,
       pendingOutImpact: cleanAmount,
       effAfter,
       streakOk: promoActive
@@ -913,9 +907,8 @@ async function renderWallet(){
     const resultValue = formatLLX(preview.resultingBalance);
     const currentValue = formatLLX(preview.availableBefore);
     const tierRow = preview.tierLabel ? `<li><span>Stato Attività</span><strong>${escapeHtml(preview.tierLabel)}</strong></li>` : '';
-    const bracketRow = preview.bracket?.label ? `<li><span>Fascia cash-out</span><strong>${escapeHtml(preview.bracket.label)}</strong></li>` : '';
     const promoBadge = preview.type==='cashout' && preview.promoActive && preview.feeRate === 0
-      ? '<span class="badge gold promo-badge">Saldo positivo → cash-out gratis</span>'
+      ? `<span class="badge gold promo-badge">Stato ${escapeHtml(preview.tierLabel ?? 'Royal')} → cash-out gratis</span>`
       : '';
     const finalNote = context.final ? '<p class="muted success">Operazione registrata in attesa di approvazione.</p>' : '';
     container.classList.toggle('final', Boolean(context.final));
@@ -925,7 +918,6 @@ async function renderWallet(){
       <ul class="distinta-list">
         <li><span>Operazione</span><strong>${escapeHtml(preview.label)}</strong></li>
         ${tierRow}
-        ${bracketRow}
         <li><span>Importo</span><strong class="llx">${formatLLX(preview.amount)}</strong></li>
         <li><span>Fee</span><strong class="llx">${feeValue}</strong><em>${feePercent}</em></li>
         <li><span>Netto conto</span><strong class="llx ${netClass}">${netValue}</strong></li>
