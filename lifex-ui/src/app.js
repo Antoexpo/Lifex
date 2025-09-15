@@ -110,12 +110,55 @@ async function loadData(){
       feeEUR: feeLLX
     };
   });
-  state.wallet = {
-    balanceLLX: Number(wallet.balanceEUR) || 0,
-    balanceEUR: Number(wallet.balanceEUR) || 0,
-    ledger: normalizedLedger,
-    streakPositiveDays: wallet.streakPositiveDays ?? 0
+  const toAmount = value => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.round(numeric * 100) / 100 : 0;
   };
+  const rawBalance = Number(wallet.balanceLLX ?? wallet.balanceEUR ?? 0);
+  const normalizedBalance = Number.isFinite(rawBalance) ? toAmount(rawBalance) : 0;
+  const pendingLedger = normalizedLedger.filter(entry=>entry.status==='in_attesa');
+  const holdsFromLedger = pendingLedger
+    .filter(entry=>entry.type==='hold')
+    .reduce((sum, entry)=>sum + Math.abs(Number(entry.amountLLX ?? entry.netLLX ?? 0)), 0);
+  const pendingOutFromLedger = pendingLedger
+    .filter(entry=>entry.type==='transfer' || entry.type==='cashout')
+    .reduce((sum, entry)=>sum + Math.abs(Number(entry.netLLX ?? entry.amountLLX ?? 0)), 0);
+  const pendingInFromLedger = pendingLedger
+    .filter(entry=>entry.type==='deposit')
+    .reduce((sum, entry)=>sum + Math.max(0, Number(entry.amountLLX ?? entry.netLLX ?? 0)), 0);
+  const positiveStreakDays = toAmount(wallet.positiveStreakDays ?? wallet.streakPositiveDays ?? 0);
+  const confirmedCreditsValue = Number(wallet.confirmedCredits);
+  const confirmedDebitsValue = Number(wallet.confirmedDebits);
+  const hasConfirmedBreakdown = Number.isFinite(confirmedCreditsValue) || Number.isFinite(confirmedDebitsValue);
+  const confirmedNet = hasConfirmedBreakdown
+    ? (Number.isFinite(confirmedCreditsValue) ? confirmedCreditsValue : 0) - (Number.isFinite(confirmedDebitsValue) ? confirmedDebitsValue : 0)
+    : Number(wallet.confirmed ?? normalizedBalance ?? 0);
+  const holds = ('holds' in wallet)
+    ? toAmount(wallet.holds)
+    : toAmount(holdsFromLedger);
+  const pendingIn = ('pendingIn' in wallet)
+    ? toAmount(wallet.pendingIn)
+    : toAmount(pendingInFromLedger);
+  const pendingOut = ('pendingOut' in wallet)
+    ? toAmount(wallet.pendingOut)
+    : toAmount(pendingOutFromLedger);
+  const walletState = {
+    balanceLLX: normalizedBalance,
+    balanceEUR: normalizedBalance,
+    balance: normalizedBalance,
+    ledger: normalizedLedger,
+    streakPositiveDays: positiveStreakDays,
+    positiveStreakDays,
+    confirmed: toAmount(confirmedNet),
+    holds,
+    pendingIn,
+    pendingOut
+  };
+  if(hasConfirmedBreakdown){
+    walletState.confirmedCredits = toAmount(Number.isFinite(confirmedCreditsValue) ? confirmedCreditsValue : 0);
+    walletState.confirmedDebits = toAmount(Number.isFinite(confirmedDebitsValue) ? confirmedDebitsValue : 0);
+  }
+  state.wallet = walletState;
   state.walletCounter = state.wallet.ledger.length;
 }
 
@@ -576,8 +619,36 @@ async function renderWallet(){
     return Math.round(numeric * 100) / 100;
   }
 
-  function determineTier(available){
-    return [...ACTIVITY_TIERS].reverse().find(tier=>available >= (tier.min ?? 0)) || ACTIVITY_TIERS[0];
+  function getEffectiveAvailable(currentState=state){
+    const wallet = currentState.wallet || {};
+    const hasBreakdown = wallet.confirmedCredits != null || wallet.confirmedDebits != null;
+    const confirmedCredits = Number(wallet.confirmedCredits ?? 0) || 0;
+    const confirmedDebits = Number(wallet.confirmedDebits ?? 0) || 0;
+    const baseConfirmed = hasBreakdown
+      ? confirmedCredits - confirmedDebits
+      : Number(wallet.confirmed ?? wallet.balance ?? wallet.balanceLLX ?? 0) || 0;
+    const holds = Number(wallet.holds ?? 0) || 0;
+    const pendingOut = Number(wallet.pendingOut ?? 0) || 0;
+    // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    return roundLLX(baseConfirmed - holds - pendingOut);
+  }
+
+  function getActivityTierFromEff(currentState=state){
+    const eff = getEffectiveAvailable(currentState);
+    // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    if(eff >= 1000) return ACTIVITY_TIERS.find(t=>t.id==='royal') || ACTIVITY_TIERS[ACTIVITY_TIERS.length-1];
+    if(eff >= 500) return ACTIVITY_TIERS.find(t=>t.id==='access') || ACTIVITY_TIERS[1] || ACTIVITY_TIERS[0];
+    return ACTIVITY_TIERS.find(t=>t.id==='base') || ACTIVITY_TIERS[0];
+  }
+
+  const POSITIVE_STREAK_THRESHOLD = 30;
+
+  function getPositiveStreakDays(){
+    return Number(state.wallet?.positiveStreakDays ?? state.wallet?.streakPositiveDays ?? 0) || 0;
+  }
+
+  function hasPositiveBalanceReward(){
+    return getPositiveStreakDays() >= POSITIVE_STREAK_THRESHOLD;
   }
 
   function getNextTier(tier){
@@ -597,11 +668,13 @@ async function renderWallet(){
   }
 
   function computeStats(){
-    const pending = state.wallet.ledger.filter(entry=>entry.status==='in_attesa');
-    const pendingPositive = roundLLX(pending.filter(entry=>entry.netLLX>0).reduce((sum,entry)=>sum+entry.netLLX,0) || 0);
-    const pendingNegative = roundLLX(pending.filter(entry=>entry.netLLX<0).reduce((sum,entry)=>sum+entry.netLLX,0) || 0);
-    const available = roundLLX((state.wallet.balanceLLX ?? 0) + (pendingNegative || 0));
-    return {pendingPositive: pendingPositive || 0, pendingNegative: pendingNegative || 0, available: available || 0};
+    const pendingPositive = roundLLX(state.wallet.pendingIn ?? 0);
+    const holdsValue = roundLLX(state.wallet.holds ?? 0);
+    const pendingOutValue = roundLLX(state.wallet.pendingOut ?? 0);
+    const pendingNegativeRaw = -((holdsValue || 0) + (pendingOutValue || 0));
+    const pendingNegative = Math.abs(pendingNegativeRaw) < 0.005 ? 0 : roundLLX(pendingNegativeRaw);
+    const available = getEffectiveAvailable(state); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    return {pendingPositive: pendingPositive || 0, pendingNegative, available, holds: holdsValue, pendingOut: pendingOutValue};
   }
 
   function getCashoutBracket(amount){
@@ -609,16 +682,30 @@ async function renderWallet(){
     return cashoutBrackets.find(bracket=>gross >= (bracket.min ?? 0) && gross <= bracket.max) || cashoutBrackets[cashoutBrackets.length-1];
   }
 
-  function previewDeposit(amount, stats, tier){
+  function previewDeposit(amount, currentState=state){
+    const tier = getActivityTierFromEff(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    const effBefore = getEffectiveAvailable(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
     const cleanAmount = roundLLX(amount);
     if(!Number.isFinite(cleanAmount) || cleanAmount <= 0){
-      return {valid:false, reason:'Inserisci un importo maggiore di zero.', type:'deposit', label:operationLabels.deposit, availableBefore: stats.available, tierId: tier.id, tierLabel: tier.label};
+      return {
+        valid:false,
+        reason:'Inserisci un importo maggiore di zero.',
+        type:'deposit',
+        label:operationLabels.deposit,
+        availableBefore: effBefore,
+        tierId: tier.id,
+        tierLabel: tier.label,
+        pendingInImpact: 0,
+        pendingOutImpact: 0,
+        totalDebit: 0
+      };
     }
     const feeRate = tier.depositFee;
     const feeLLX = roundLLX(cleanAmount * feeRate);
+    const totalDebit = roundLLX(cleanAmount + feeLLX);
     const amountSigned = cleanAmount;
     const netLLX = roundLLX(amountSigned - feeLLX);
-    const resultingBalance = roundLLX(stats.available + netLLX);
+    const effAfter = roundLLX(effBefore + cleanAmount);
     return {
       valid:true,
       type:'deposit',
@@ -627,30 +714,56 @@ async function renderWallet(){
       amountSigned,
       feeRate,
       feeLLX,
+      totalDebit,
       netLLX,
-      resultingBalance,
-      availableBefore: stats.available,
+      resultingBalance: effAfter,
+      availableBefore: effBefore,
       tierId: tier.id,
       tierLabel: tier.label,
       feeTooltip: `Stato ${tier.label}: fee ricarica ${formatPercent(feeRate)}.`,
-      promoActive: false
+      promoActive: false,
+      pendingInImpact: cleanAmount,
+      pendingOutImpact: 0,
+      effAfter
     };
   }
 
-  function previewTransfer(amount, stats, tier){
+  function previewTransfer(amount, currentState=state){
+    const tier = getActivityTierFromEff(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    const effBefore = getEffectiveAvailable(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
     const cleanAmount = roundLLX(amount);
     if(!Number.isFinite(cleanAmount) || cleanAmount <= 0){
-      return {valid:false, reason:'Inserisci un importo maggiore di zero.', type:'transfer', label:operationLabels.transfer, availableBefore: stats.available, tierId: tier.id, tierLabel: tier.label};
+      return {
+        valid:false,
+        reason:'Inserisci un importo maggiore di zero.',
+        type:'transfer',
+        label:operationLabels.transfer,
+        availableBefore: effBefore,
+        tierId: tier.id,
+        tierLabel: tier.label,
+        pendingOutImpact: 0,
+        totalDebit: 0
+      };
     }
     const feeRate = tier.transferFee;
     const feeLLX = roundLLX(cleanAmount * feeRate);
     const totalOut = roundLLX(cleanAmount + feeLLX);
-    if(totalOut > stats.available + 0.005){
-      return {valid:false, reason:`Totale ${formatLLX(totalOut)} supera il saldo disponibile (${formatLLX(stats.available)}).`, type:'transfer', label:operationLabels.transfer, availableBefore: stats.available, tierId: tier.id, tierLabel: tier.label};
+    if(totalOut > effBefore + 0.005){
+      return {
+        valid:false,
+        reason:`Totale ${formatLLX(totalOut)} supera il saldo disponibile (${formatLLX(effBefore)}).`,
+        type:'transfer',
+        label:operationLabels.transfer,
+        availableBefore: effBefore,
+        tierId: tier.id,
+        tierLabel: tier.label,
+        pendingOutImpact: 0,
+        totalDebit: totalOut
+      };
     }
     const amountSigned = -cleanAmount;
     const netLLX = roundLLX(amountSigned - feeLLX);
-    const resultingBalance = roundLLX(stats.available + netLLX);
+    const effAfter = roundLLX(effBefore - totalOut);
     return {
       valid:true,
       type:'transfer',
@@ -659,31 +772,57 @@ async function renderWallet(){
       amountSigned,
       feeRate,
       feeLLX,
+      totalDebit: totalOut,
       netLLX,
-      resultingBalance,
-      availableBefore: stats.available,
+      resultingBalance: effAfter,
+      availableBefore: effBefore,
       tierId: tier.id,
       tierLabel: tier.label,
       feeTooltip: `Stato ${tier.label}: fee trasferimento ${formatPercent(feeRate)}.`,
-      promoActive: false
+      promoActive: false,
+      pendingOutImpact: totalOut,
+      effAfter
     };
   }
 
-  function previewCashout(amount, stats, promoActive){
+  function previewCashout(amount, currentState=state){
+    const effBefore = getEffectiveAvailable(currentState); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    const promoActive = hasPositiveBalanceReward();
     const cleanAmount = roundLLX(amount);
     if(!Number.isFinite(cleanAmount) || cleanAmount <= 0){
-      return {valid:false, reason:'Inserisci un importo maggiore di zero.', type:'cashout', label:operationLabels.cashout, availableBefore: stats.available, promoActive};
+      return {
+        valid:false,
+        reason:'Inserisci un importo maggiore di zero.',
+        type:'cashout',
+        label:operationLabels.cashout,
+        availableBefore: effBefore,
+        promoActive,
+        pendingOutImpact: 0,
+        totalDebit: 0,
+        streakOk: promoActive
+      };
     }
     const bracket = getCashoutBracket(cleanAmount);
     const feeRate = promoActive ? 0 : bracket.rate;
     const feeLLX = roundLLX(cleanAmount * feeRate);
     const totalOut = roundLLX(cleanAmount + feeLLX);
-    if(totalOut > stats.available + 0.005){
-      return {valid:false, reason:`Totale ${formatLLX(totalOut)} supera il saldo disponibile (${formatLLX(stats.available)}).`, type:'cashout', label:operationLabels.cashout, availableBefore: stats.available, promoActive};
+    if(cleanAmount > effBefore + 0.005){
+      return {
+        valid:false,
+        reason:`Importo ${formatLLX(cleanAmount)} supera il saldo disponibile (${formatLLX(effBefore)}).`,
+        type:'cashout',
+        label:operationLabels.cashout,
+        availableBefore: effBefore,
+        promoActive,
+        pendingOutImpact: 0,
+        totalDebit: totalOut,
+        bracket,
+        streakOk: promoActive
+      };
     }
     const amountSigned = -cleanAmount;
     const netLLX = roundLLX(amountSigned - feeLLX);
-    const resultingBalance = roundLLX(stats.available + netLLX);
+    const effAfter = roundLLX(effBefore - cleanAmount);
     const feeTooltip = promoActive
       ? 'Promo saldo positivo attiva: cash-out gratuito.'
       : `Cash-out ${bracket.label}: fee ${formatPercent(feeRate)}.`;
@@ -695,14 +834,18 @@ async function renderWallet(){
       amountSigned,
       feeRate,
       feeLLX,
+      totalDebit: totalOut,
       netLLX,
-      resultingBalance,
-      availableBefore: stats.available,
+      resultingBalance: effAfter,
+      availableBefore: effBefore,
       tierId: null,
       tierLabel: null,
       feeTooltip,
       promoActive,
-      bracket
+      bracket,
+      pendingOutImpact: cleanAmount,
+      effAfter,
+      streakOk: promoActive
     };
   }
 
@@ -782,20 +925,50 @@ async function renderWallet(){
     };
   }
 
+  function recordDeposit(preview, data){
+    const entry = buildLedgerEntry('deposit', data, preview);
+    if(Number.isFinite(preview.pendingInImpact)){
+      const current = Number(state.wallet.pendingIn ?? 0) || 0;
+      state.wallet.pendingIn = roundLLX(current + Math.max(0, preview.pendingInImpact || 0));
+    }
+    addLedgerEntry(entry);
+  }
+
+  function recordTransfer(preview, data){
+    const entry = buildLedgerEntry('transfer', data, preview);
+    const impact = Math.abs(preview.pendingOutImpact ?? 0);
+    if(impact){
+      const current = Number(state.wallet.pendingOut ?? 0) || 0;
+      state.wallet.pendingOut = roundLLX(current + impact); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    }
+    addLedgerEntry(entry);
+  }
+
+  function recordCashout(preview, data){
+    const entry = buildLedgerEntry('cashout', data, preview);
+    const impact = Math.abs(preview.pendingOutImpact ?? 0);
+    if(impact){
+      const current = Number(state.wallet.pendingOut ?? 0) || 0;
+      state.wallet.pendingOut = roundLLX(current + impact); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+    }
+    addLedgerEntry(entry);
+  }
+
   function renderWalletUI(){
     const stats = computeStats();
-    const tier = determineTier(stats.available);
+    const tier = getActivityTierFromEff(state); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
     const progress = computeProgress(tier, stats.available);
-    const promoActive = state.wallet.streakPositiveDays >= 30;
+    const promoActive = hasPositiveBalanceReward();
+    const confirmedBalance = Number(state.wallet.confirmed ?? state.wallet.balanceLLX) || 0;
     cardContainer.innerHTML = WalletCard({
-      balanceLLX: Number(state.wallet.balanceLLX) || 0,
+      balanceLLX: confirmedBalance,
       availableLLX: stats.available,
       pendingPositive: stats.pendingPositive,
       pendingNegative: stats.pendingNegative,
       tier,
       nextTier: progress.nextTier,
       progress,
-      streakDays: state.wallet.streakPositiveDays,
+      streakDays: getPositiveStreakDays(),
       promoActive
     });
     ledgerContainer.innerHTML = LedgerTable(state.wallet.ledger);
@@ -846,14 +1019,11 @@ async function renderWallet(){
     let currentPreview = null;
 
     function updatePreview(){
-      const stats = computeStats();
-      const tier = determineTier(stats.available);
-      const promoActive = state.wallet.streakPositiveDays >= 30;
       const amountValue = formEl.elements['amount']?.value;
       let preview;
-      if(type==='deposit') preview = previewDeposit(amountValue, stats, tier);
-      else if(type==='transfer') preview = previewTransfer(amountValue, stats, tier);
-      else preview = previewCashout(amountValue, stats, promoActive);
+      if(type==='deposit') preview = previewDeposit(amountValue, state);
+      else if(type==='transfer') preview = previewTransfer(amountValue, state);
+      else preview = previewCashout(amountValue, state);
       if(type==='transfer'){
         const recipient = formEl.elements['recipient']?.value?.trim();
         if(!recipient){
@@ -892,18 +1062,19 @@ async function renderWallet(){
         }
       }
       if(type!=='deposit'){
-        const latestStats = computeStats();
-        const totalImpact = Math.abs(currentPreview.netLLX);
-        if(totalImpact > latestStats.available + 0.005){
+        const latestAvailable = getEffectiveAvailable(state); // PERCENT FIX: use availableEff (confirmed - holds - pendingOut)
+        const totalImpact = Math.abs(currentPreview.pendingOutImpact ?? 0);
+        if(totalImpact > latestAvailable + 0.005){
           showToast('Saldo disponibile insufficiente per completare l\'operazione.','warn');
           updatePreview();
           return;
         }
       }
       const data = Object.fromEntries(new FormData(formEl).entries());
-      const entry = buildLedgerEntry(type, data, currentPreview);
       // TODO: sostituire con chiamata API reale per registrare l'operazione sul backend
-      addLedgerEntry(entry);
+      if(type==='deposit') recordDeposit(currentPreview, data);
+      else if(type==='transfer') recordTransfer(currentPreview, data);
+      else recordCashout(currentPreview, data);
       renderDistinta(distintaEl, currentPreview, {final:true});
       submitBtn.disabled = true;
       submitBtn.textContent = 'Registrato';
