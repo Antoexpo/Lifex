@@ -24,3 +24,45 @@ Modificare i dati nelle rispettive `src/data/*.json`.
 1. UI statica (questo progetto)
 2. Validazioni client-side e modali avanzate
 3. Integrazione API reali e autenticazione
+
+## Nuove Rotte
+- `#/network` — visualizza l'albero generazionale con ricerca, filtri di profondità ed apertura/chiusura dei nodi.
+- `#/catalog` — mostra il catalogo prodotti con filtri e permette l'uso del mini carrello demo nella topbar.
+- `#/wallet` — pannello Conto Interno con saldo, ledger e azioni di deposito/prelievo/trasferimento simulate.
+
+## Codice Cliente (13 caratteri)
+Formato: `LLX` + anno corrente (YYYY) + 6 cifre estratte dal codice fiscale. Se le cifre disponibili sono meno di 6 vengono riempite a destra con zeri; se il codice fiscale è assente o senza numeri viene generata una combinazione casuale. La generazione avviene a ogni caricamento lato client e non viene salvata su backend.
+
+## Mappa Codici
+Nella vista **Membri** è presente il pulsante “Copia mappa codici”: apre una modal con la mappa `oldCode -> newCode` generata in runtime. È possibile copiare il JSON negli appunti per l'esportazione manuale (demo).
+
+## Wallet (mock)
+Il Conto Interno mostra il saldo disponibile, le entrate/uscite in attesa e il ledger. Le azioni di Deposito, Prelievo e Trasferimento aggiungono movimenti con stato `in_attesa`, validando importi e (per i trasferimenti) il codice destinatario. Nessuna operazione viene persistita: al refresh i dati tornano a quelli di `wallet.json`.
+
+## LLX Points & Fee
+- 1 LLX = 1 € (valuta interna, solo UI).
+- Fee ricarica: 10% (Base), 8% (Access), 1% (Royal).
+- Spostamenti interni: 2% / 1% / 0% (Base/Access/Royal).
+- Cash-out: 5% (<500 LLX), 2% (500–999 LLX), 0% (≥1000 LLX).
+- Premio saldo positivo: se la streak positiva ≥ 30 giorni → cash-out gratuito (0%). (Mock, calcolo client)
+
+## Stati Attività
+- Base: 0–499 LLX
+- Access: 500–999 LLX
+- Royal: ≥ 1000 LLX
+
+## Distinta operazioni
+- Tutte le operazioni mostrano anteprima costi, fee e saldo risultante prima della conferma.
+- Il ledger registra importo, fee, valuta LLX e stato `in_attesa` (mock).
+
+## TODO Backend
+- Persistenza dei codici cliente generati e sincronizzazione con l'albero.
+- API per checkout/catalogo e conferma degli ordini.
+- Persistenza ledger e saldo reale, con verifica della streak positiva lato server.
+- Esecuzione cash-out/transfer e contabilizzazione fee/bonus.
+- Generazione PDF della distinta operativa.
+- Gestione posizionamento albero con slot e vincoli reali.
+
+## Changelog UI
+- aggiunti network/catalog/wallet; generator codici cliente
+- aggiunto Wallet LLX Points, fee dinamiche, distinta costi, stati attività

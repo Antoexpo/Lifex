@@ -10,6 +10,8 @@
   --llx-ok: #2e7d32;
   --llx-warn: #ed6c02;
   --llx-err: #c62828;
+  --green-500: #2e7d32;
+  --red-500: #c62828;
 
   /* Typography */
   --llx-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

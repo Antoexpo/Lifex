@@ -1,0 +1,25 @@
+<section class="network-view">
+  <div class="toolbar" style="display:flex;justify-content:space-between;align-items:center;gap:var(--llx-space-m);">
+    <h1>Albero Generazioni</h1>
+    <div class="toolbar-actions" style="display:flex;gap:var(--llx-space-s);">
+      <button id="network-expand" class="btn ghost">Espandi tutto</button>
+      <button id="network-collapse" class="btn ghost">Comprimi tutto</button>
+    </div>
+  </div>
+  <div class="filters" style="margin:var(--llx-space-m) 0;display:flex;flex-wrap:wrap;gap:var(--llx-space-m);align-items:center;">
+    <input id="network-search" class="input" placeholder="Cerca per nome o codice" aria-label="Ricerca membri" />
+    <label style="display:flex;align-items:center;gap:var(--llx-space-s);">
+      <span>Profondità</span>
+      <select id="network-depth" class="input" aria-label="Profondità albero">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3" selected>3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+      </select>
+    </label>
+    <button class="btn ghost tooltip" id="network-tooltip" aria-label="Regole assegnazione" title="Sponsor = chi invita. Parent = dove viene posizionato il nodo. Esempi: 1) sponsor=parent → Gen1. 2) sponsor diverso e parent discendente → spillover, generazione dal ramo reale. 3) slot pieni → mostra 'Slot esauriti' (futuro).">?</button>
+  </div>
+  <p id="network-context" class="muted" style="margin-bottom:var(--llx-space-m);color:var(--llx-text-muted);"></p>
+  <div id="network-tree"></div>
+</section>
